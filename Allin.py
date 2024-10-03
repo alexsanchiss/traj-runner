@@ -1,7 +1,21 @@
 import json
 import os
 import asyncio
-import time
+import requests
+
+async def notify_csv_ready(mission_name):
+    csv_file_path = f"/home/asanmar4/PythonPruebas/Trayectorias/{mission_name}_log.csv"
+    url = f"http://localhost:8000/csv_ready/{mission_name}"
+    
+    # Envía una notificación a la API
+    try:
+        response = requests.post(url, json={"csv_file": csv_file_path})
+        if response.status_code == 200:
+            print(f"Notificación enviada: {mission_name} CSV listo.")
+        else:
+            print(f"Error al notificar: {response.status_code}")
+    except Exception as e:
+        print(f"Error al conectar con la API: {e}")
 
 def extract_home_position(mission_path):
     """Extrae la posición del hogar desde el archivo de misión."""
@@ -27,6 +41,8 @@ async def monitor_px4_output(process, mission_name):
             if "Ready for takeoff!" in output_decoded:
                 print("Mensaje detectado: Ready for takeoff!")
                 await run_mavsdk_mission(mission_name)  # Pasa el mission_name
+                print("Proceso completado, notificando que el CSV está listo...")
+                await notify_csv_ready(mission_name)
                 await shutdown_px4(process)
                 break
 
@@ -89,8 +105,8 @@ async def monitor_plan_directory():
 
     while True:
         # Listar todos los archivos .plan en el directorio
-        mission_files = [f for f in os.listdir(watched_directory) if f.endswith('.plan')]
         print('Buscando actualizaciones...')
+        mission_files = [f for f in os.listdir(watched_directory) if f.endswith('.plan')]
         # Procesar cada archivo que no ha sido procesado aún
         for mission_file in mission_files:
             if mission_file not in processed_files:
@@ -98,7 +114,7 @@ async def monitor_plan_directory():
                 await process_mission_file(mission_path)
                 processed_files.add(mission_file)  # Marcar el archivo como procesado
 
-        await asyncio.sleep(5)  # Esperar 5 segundos antes de volver a revisar
+        await asyncio.sleep(1)  # Esperar 1 segundo antes de volver a revisar
 
 if __name__ == "__main__":
     try:

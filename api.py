@@ -1,9 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi.responses import FileResponse
 import os
 import asyncio
 
 app = FastAPI()
+
+# Diccionario para almacenar las señales de que los CSVs están listos
+csv_ready_events = {}
 
 # Define el modelo de datos que se espera recibir
 class MissionPlan(BaseModel):
@@ -15,39 +19,45 @@ class MissionPlan(BaseModel):
     rallyPoints: dict
     version: int
 
-async def wait_for_file(file_path: str, timeout: int = 200) -> str:
-    """Espera hasta que el archivo exista en la ruta especificada o hasta que se alcance el tiempo de espera."""
-    for _ in range(timeout):
-        if os.path.exists(file_path):
-            return file_path
-        await asyncio.sleep(1)  # Espera 1 segundo antes de volver a comprobar
-    raise HTTPException(status_code=404, detail=f"Archivo {file_path} no encontrado dentro del tiempo de espera.")
-
 @app.post("/upload_plan/")
 async def upload_plan(plan: MissionPlan):
-    """Guarda el JSON recibido como un archivo .plan en la carpeta especificada y espera el archivo CSV."""
-    # Generar el nombre del archivo .plan
+    """Guarda el JSON recibido como un archivo .plan y espera hasta que el CSV esté listo."""
     plan_name = f"{plan.name}.plan"
     plan_file_path = os.path.join("/home/asanmar4/PythonPruebas/Planes", plan_name)
 
     # Guardar el archivo .plan
-# Guardar el archivo .plan
     try:
         with open(plan_file_path, 'w') as f:
             f.write(plan.json())
     except Exception as e:
-        print(f"Error al guardar el archivo: {str(e)}")  # Añadir impresión de error
         raise HTTPException(status_code=500, detail=f"Error al guardar el archivo: {str(e)}")
 
+    # Inicializar un evento asyncio para esperar la señal de que el CSV está listo
+    if plan.name not in csv_ready_events:
+        csv_ready_events[plan.name] = asyncio.Event()
 
-    # Esperar el archivo CSV
+    # Esperar hasta que se haga el POST en /csv_ready/{mission_name}
+    await csv_ready_events[plan.name].wait()
+
+    # Una vez que el CSV esté listo, devolver el archivo CSV
     csv_file_path = os.path.join("/home/asanmar4/PythonPruebas/Trayectorias", f"{plan.name}_log.csv")
     
-    try:
-        await wait_for_file(csv_file_path)  # Espera a que el archivo CSV esté disponible
-        return {"message": f"Archivo guardado como {plan_name}", "csv_file": csv_file_path}
-    except HTTPException as e:
-        raise e
+    if os.path.exists(csv_file_path):
+        return FileResponse(path=csv_file_path, media_type='text/csv', filename=f"{plan.name}_log.csv")
+    else:
+        raise HTTPException(status_code=404, detail="CSV no encontrado.")
+
+@app.post("/csv_ready/{mission_name}")
+async def csv_ready_notification(mission_name: str, csv_data: dict):
+    """Endpoint para recibir la notificación de que el CSV está listo."""
+    csv_file_path = csv_data.get("csv_file")
+    
+    if os.path.exists(csv_file_path):
+        if mission_name in csv_ready_events:
+            csv_ready_events[mission_name].set()  # Desbloquear la espera en /upload_plan
+        return {"message": f"CSV para {mission_name} está listo."}
+    else:
+        raise HTTPException(status_code=404, detail="CSV no encontrado.")
 
 if __name__ == "__main__":
     import uvicorn

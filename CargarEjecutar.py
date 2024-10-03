@@ -58,7 +58,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
         if len(mission.rally_items) > 0:
             await drone.mission_raw.upload_rally_points(mission.rally_items)
 
-        print("Misión {mission_name} cargada.")
+        print(f"Misión {mission_name} cargada.")
 
         # Esperar a que el dron esté listo para volar
         print("Esperando la estimación de posición global...")

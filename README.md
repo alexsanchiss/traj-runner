@@ -1,6 +1,12 @@
-# Traj-Runner v0.1.0
+# Traj-Runner v0.3.0
 
-Traj-Runner es un conjunto de scripts en Python que interactúan con drones utilizando MAVSDK y PX4. Permite cargar misiones previamente definidas en formato JSON, con el formato de QGroundControl y ejecutar vuelos automáticos mientras se registran datos de telemetría como posición, velocidad, orientación y GPS.
+Traj-Runner es un conjunto de scripts en Python que interactúan con drones utilizando MAVSDK y PX4. Es un programa diseñado para recibir trayectorias mediante una API y ejecutar planes en un dron conectado utilizando PX4 y MAVSDK-Python. La API y el script Allin.py deben correr simultáneamente para su funcionamiento.
+
+## Características Nuevas:
+Registro de Telemetría Mejorado: Ahora se guardan datos adicionales de telemetría en el archivo CSV, incluyendo información detallada sobre la orientación y la velocidad en los ejes X, Y y Z.
+Análisis de Datos: Se ha implementado una función que permite extraer y graficar datos de vuelo en MATLAB, facilitando la visualización de la trayectoria y el comportamiento del dron.
+Conversión de Coordenadas: Nueva funcionalidad para transformar coordenadas de latitud y longitud en coordenadas X, Y respecto al punto HOME, mejorando la precisión en la representación de la trayectoria.
+Interfaz de Usuario Mejorada: Se han realizado ajustes en los mensajes de estado y los logs, proporcionando una mejor comprensión del estado del dron durante las misiones.
 
 ## Características:
 - Conexión con el dron utilizando MAVSDK.
@@ -13,6 +19,10 @@ Traj-Runner es un conjunto de scripts en Python que interactúan con drones util
 - **CargarEjecutar.py**: Carga la misión, inicia el vuelo y guarda los datos de telemetría en un archivo CSV.
 - **Allin.py**: Coordina la simulación con PX4 y ejecuta la misión con MAVSDK.
 
+## Uso
+- El programa espera recibir un POST en el endpoint configurado. Una vez que recibe la solicitud, ejecutará el plan correspondiente y responderá con la trayectoria.
+- El formato del JSON adjunto al POST debe ser un archivo .plan generado con QGroundControl. Hay algunos ejemplos en la carpeta Planes_Backup
+
 ### Requisitos:
-- MAVSDK-Python
 - PX4 (Gazebo-Classic)
+- MAVSDK-Python
