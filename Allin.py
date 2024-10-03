@@ -1,6 +1,7 @@
 import json
 import os
 import asyncio
+import time
 
 def extract_home_position(mission_path):
     """Extrae la posición del hogar desde el archivo de misión."""
@@ -60,30 +61,47 @@ async def run_px4(home_lat, home_lon, home_alt):
     )
     return process
 
-async def main():
-    mission_name = "UPV1"  # Aquí defines el nombre de la misión
-    mission_path = f"/home/asanmar4/PythonPruebas/Planes/{mission_name}.plan"
+async def process_mission_file(mission_path):
+    """Procesa un archivo de misión, ejecutando PX4 y MAVSDK."""
+    mission_name = os.path.basename(mission_path).replace('.plan', '')
+    home_lat, home_lon, home_alt = extract_home_position(mission_path)
+    print(f"Procesando misión: {mission_name}")
+    print(f"Posición del hogar extraída: LAT={home_lat}, LON={home_lon}, ALT={home_alt}")
 
-    try:
-        # Extraer la posición del hogar
-        home_lat, home_lon, home_alt = extract_home_position(mission_path)
-        print(f"Posición del hogar extraída: LAT={home_lat}, LON={home_lon}, ALT={home_alt}")
+    # Cambiar al directorio PX4-Autopilot
+    os.chdir(os.path.expanduser("~/PX4-Autopilot"))
+    print("Cambiado al directorio: ~/PX4-Autopilot")
 
-        # Cambiar al directorio PX4-Autopilot
-        os.chdir(os.path.expanduser("~/PX4-Autopilot"))
-        print("Cambiado al directorio: ~/PX4-Autopilot")
+    # Ejecutar PX4
+    px4_process = await run_px4(home_lat, home_lon, home_alt)
 
-        # Ejecutar PX4
-        px4_process = await run_px4(home_lat, home_lon, home_alt)
+    # Monitorear la salida de PX4, pasando el mission_name
+    await monitor_px4_output(px4_process, mission_name)
 
-        # Monitorear la salida de PX4, pasando el mission_name
-        await monitor_px4_output(px4_process, mission_name)
+    # Borrar el archivo procesado
+    os.remove(mission_path)
+    print(f"Archivo procesado y eliminado: {mission_path}")
 
-    except Exception as e:
-        print(f"Error: {e}")
+async def monitor_plan_directory():
+    """Monitorea la carpeta de planes en busca de nuevos archivos."""
+    watched_directory = '/home/asanmar4/PythonPruebas/Planes'
+    processed_files = set()
+
+    while True:
+        # Listar todos los archivos .plan en el directorio
+        mission_files = [f for f in os.listdir(watched_directory) if f.endswith('.plan')]
+        print('Buscando actualizaciones...')
+        # Procesar cada archivo que no ha sido procesado aún
+        for mission_file in mission_files:
+            if mission_file not in processed_files:
+                mission_path = os.path.join(watched_directory, mission_file)
+                await process_mission_file(mission_path)
+                processed_files.add(mission_file)  # Marcar el archivo como procesado
+
+        await asyncio.sleep(5)  # Esperar 5 segundos antes de volver a revisar
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(monitor_plan_directory())
     except Exception as e:
         print(f"Error en la ejecución principal: {e}")

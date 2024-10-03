@@ -14,10 +14,11 @@ current_alt = None
 last_lat = None
 last_lon = None
 last_alt = None
+inic_alt = None
 
 async def run(mission_name):  # Recibir el mission_name como argumento
     try:
-        global last_lat, last_lon, last_alt
+        global last_lat, last_lon, last_alt, inic_alt
         # Conectar al dron
         drone = System()
         await drone.connect(system_address="udp://:14540")
@@ -43,10 +44,12 @@ async def run(mission_name):  # Recibir el mission_name como argumento
                 last_lat = planned_home_position[0]
                 last_lon = planned_home_position[1]
                 last_alt = planned_home_position[2]
+                inic_alt = 0
             else:
                 last_lat = last_wp["params"][4]  # Latitud del último waypoint
                 last_lon = last_wp["params"][5]  # Longitud del último waypoint
                 last_alt = last_wp["params"][6]  # Altitud del último waypoint
+                inic_alt = planned_home_position[2]
 
         # Subir la misión al dron usando MAVSDK
         mission = await drone.mission_raw.import_qgroundcontrol_mission(mission_path)
@@ -55,7 +58,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
         if len(mission.rally_items) > 0:
             await drone.mission_raw.upload_rally_points(mission.rally_items)
 
-        print("Misión cargada.")
+        print("Misión {mission_name} cargada.")
 
         # Esperar a que el dron esté listo para volar
         print("Esperando la estimación de posición global...")
@@ -142,9 +145,9 @@ async def log_odometry(drone, writer):
         })
 
         # Comprobar si el dron ha aterrizado
-        if current_lat is not None and current_lon is not None and current_alt is not None:
+        if current_lat is not None and current_lon is not None and current_alt is not None and inic_alt is not None:
             a += 1
-            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt) < 0.5 and a > 1000):
+            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt - inic_alt) < 0.5 and a > 1000):
                 b = 1
                 c = a
             if b == 1 and (a - c) > 1000:
