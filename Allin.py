@@ -3,8 +3,10 @@ import os
 import asyncio
 import requests
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
 async def notify_csv_ready(mission_name):
-    csv_file_path = f"/home/asanmar4/PythonPruebas/Trayectorias/{mission_name}_log.csv"
+    csv_file_path = f"{current_dir}/Trayectorias/{mission_name}_log.csv"
     url = f"http://localhost:8000/csv_ready/{mission_name}"
     
     # Envía una notificación a la API
@@ -55,7 +57,7 @@ async def shutdown_px4(process):
 
 async def run_mavsdk_mission(mission_name):
     """Ejecuta el script de MAVSDK en un nuevo proceso."""
-    mavsdk_command = ["python3", "/home/asanmar4/PythonPruebas/CargarEjecutar.py", mission_name]
+    mavsdk_command = ["python3", f"{current_dir}/CargarEjecutar.py", mission_name]
     mavsdk_process = await asyncio.create_subprocess_exec(*mavsdk_command)
     await mavsdk_process.wait()  # Esperar a que el script MAVSDK termine
     print("MAVSDK misión finalizada. Cerrando procesos...")
@@ -100,8 +102,7 @@ async def process_mission_file(mission_path):
 
 async def monitor_plan_directory():
     """Monitorea la carpeta de planes en busca de nuevos archivos."""
-    watched_directory = '/home/asanmar4/PythonPruebas/Planes'
-    processed_files = set()
+    watched_directory = f"{current_dir}/Planes"
 
     while True:
         # Listar todos los archivos .plan en el directorio
@@ -109,10 +110,8 @@ async def monitor_plan_directory():
         mission_files = [f for f in os.listdir(watched_directory) if f.endswith('.plan')]
         # Procesar cada archivo que no ha sido procesado aún
         for mission_file in mission_files:
-            if mission_file not in processed_files:
-                mission_path = os.path.join(watched_directory, mission_file)
-                await process_mission_file(mission_path)
-                processed_files.add(mission_file)  # Marcar el archivo como procesado
+            mission_path = os.path.join(watched_directory, mission_file)
+            await process_mission_file(mission_path)
 
         await asyncio.sleep(1)  # Esperar 1 segundo antes de volver a revisar
 

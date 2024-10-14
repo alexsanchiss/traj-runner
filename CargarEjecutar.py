@@ -30,7 +30,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
                 break
 
         # Leer el archivo JSON de la misión
-        mission_path = f"/home/asanmar4/PythonPruebas/Planes/{mission_name}.plan"  # Usar mission_name del argumento
+        mission_path = f"/home/asanmar4/traj-runner/Planes/{mission_name}.plan"  # Usar mission_name del argumento
         with open(mission_path, 'r') as f:
             mission_json = json.load(f)
 
@@ -70,7 +70,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
         await attempt_takeoff(drone)
 
         # Crear el archivo CSV para registrar los datos
-        with open('/home/asanmar4/PythonPruebas/Trayectorias/' + mission_name + '_log.csv', mode='w') as csv_file:
+        with open('/home/asanmar4/traj-runner/Trayectorias/' + mission_name + '_log.csv', mode='w') as csv_file:
             fieldnames = ['SimTime', 'X', 'Y', 'Z', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz', 'Lat', 'Lon', 'Alt']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()

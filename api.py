@@ -8,7 +8,7 @@ app = FastAPI()
 
 # Diccionario para almacenar las señales de que los CSVs están listos
 csv_ready_events = {}
-
+current_dir = os.path.dirname(os.path.abspath(__file__))
 # Define el modelo de datos que se espera recibir
 class MissionPlan(BaseModel):
     name: str
@@ -23,7 +23,7 @@ class MissionPlan(BaseModel):
 async def upload_plan(plan: MissionPlan):
     """Guarda el JSON recibido como un archivo .plan y espera hasta que el CSV esté listo."""
     plan_name = f"{plan.name}.plan"
-    plan_file_path = os.path.join("/home/asanmar4/PythonPruebas/Planes", plan_name)
+    plan_file_path = os.path.join(f"{current_dir}/Planes", plan_name)
 
     # Guardar el archivo .plan
     try:
@@ -40,10 +40,16 @@ async def upload_plan(plan: MissionPlan):
     await csv_ready_events[plan.name].wait()
 
     # Una vez que el CSV esté listo, devolver el archivo CSV
-    csv_file_path = os.path.join("/home/asanmar4/PythonPruebas/Trayectorias", f"{plan.name}_log.csv")
+    csv_file_path = os.path.join(f"{current_dir}/Trayectorias", f"{plan.name}_log.csv")
     
     if os.path.exists(csv_file_path):
-        return FileResponse(path=csv_file_path, media_type='text/csv', filename=f"{plan.name}_log.csv")
+        response = FileResponse(path=csv_file_path, media_type='text/csv', filename=f"{plan.name}_log.csv")
+        
+        # Enviar el archivo CSV y luego eliminarlo
+        try:
+            return response
+        finally:
+            os.remove(csv_file_path)  # Eliminar el archivo CSV después de enviarlo
     else:
         raise HTTPException(status_code=404, detail="CSV no encontrado.")
 
