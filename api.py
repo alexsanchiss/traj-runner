@@ -9,13 +9,6 @@ app = FastAPI()
 # Diccionario para almacenar las señales de que los CSVs están listos
 csv_ready_events = {}
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Verificar si la carpeta Planes existe, si no, crearla
-planes_dir = os.path.join(current_dir, 'Planes')
-if not os.path.exists(planes_dir):
-    os.makedirs(planes_dir)
-    print(f"Carpeta 'Planes' creada en: {planes_dir}")
-
 # Define el modelo de datos que se espera recibir
 class MissionPlan(BaseModel):
     name: str
@@ -50,13 +43,7 @@ async def upload_plan(plan: MissionPlan):
     csv_file_path = os.path.join(f"{current_dir}/Trayectorias", f"{plan.name}_log.csv")
     
     if os.path.exists(csv_file_path):
-        response = FileResponse(path=csv_file_path, media_type='text/csv', filename=f"{plan.name}_log.csv")
-        
-        # Enviar el archivo CSV y luego eliminarlo
-        try:
-            return response
-        finally:
-            os.remove(csv_file_path)  # Eliminar el archivo CSV después de enviarlo
+        return FileResponse(path=csv_file_path, media_type='text/csv', filename=f"{plan.name}_log.csv")
     else:
         raise HTTPException(status_code=404, detail="CSV no encontrado.")
 
@@ -71,3 +58,7 @@ async def csv_ready_notification(mission_name: str, csv_data: dict):
         return {"message": f"CSV para {mission_name} está listo."}
     else:
         raise HTTPException(status_code=404, detail="CSV no encontrado.")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

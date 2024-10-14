@@ -6,6 +6,7 @@ import json
 from mavsdk import System
 import time
 import sys
+import os
 
 # Variables globales para almacenar los datos de GPS y usarlos en el bucle de odometría
 current_lat = None
@@ -15,6 +16,8 @@ last_lat = None
 last_lon = None
 last_alt = None
 inic_alt = None
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
 async def run(mission_name):  # Recibir el mission_name como argumento
     try:
@@ -30,7 +33,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
                 break
 
         # Leer el archivo JSON de la misión
-        mission_path = f"/home/asanmar4/traj-runner/Planes/{mission_name}.plan"  # Usar mission_name del argumento
+        mission_path = f"{current_dir}/Planes/{mission_name}.plan"  # Usar mission_name del argumento
         with open(mission_path, 'r') as f:
             mission_json = json.load(f)
 
@@ -70,7 +73,10 @@ async def run(mission_name):  # Recibir el mission_name como argumento
         await attempt_takeoff(drone)
 
         # Crear el archivo CSV para registrar los datos
-        with open('/home/asanmar4/traj-runner/Trayectorias/' + mission_name + '_log.csv', mode='w') as csv_file:
+        trayectorias_dir = f"{current_dir}/Trayectorias"
+        if not os.path.exists(trayectorias_dir):
+            os.makedirs(trayectorias_dir)
+        with open(f'{current_dir}/Trayectorias/' + mission_name + '_log.csv', mode='w') as csv_file:
             fieldnames = ['SimTime', 'X', 'Y', 'Z', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz', 'Lat', 'Lon', 'Alt']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
