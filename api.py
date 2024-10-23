@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 import os
 import asyncio
+import uvicorn
 
 app = FastAPI()
 
@@ -60,5 +61,4 @@ async def csv_ready_notification(mission_name: str, csv_data: dict):
         raise HTTPException(status_code=404, detail="CSV no encontrado.")
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
