@@ -84,8 +84,8 @@ async def run(mission_name):  # Recibir el mission_name como argumento
             writer.writeheader()
 
             tasks = [
-                asyncio.create_task(log_odometry(drone, writer)),
-                asyncio.create_task(log_gps(drone))
+                asyncio.create_task(log_gps(drone)),
+                asyncio.create_task(log_odometry(drone, writer))
             ]
 
             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
