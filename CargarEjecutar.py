@@ -9,6 +9,7 @@ import sys
 import os
 
 # Variables globales para almacenar los datos de GPS y usarlos en el bucle de odometría
+global current_lat, current_lon, current_alt, last_lat, last_lon, last_alt, inic_alt
 current_lat = None
 current_lon = None
 current_alt = None
@@ -19,6 +20,7 @@ inic_alt = None
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
+# Definir la función principal para cargar y ejecutar la misión
 async def run(mission_name):  # Recibir el mission_name como argumento
     try:
         global last_lat, last_lon, last_alt, inic_alt
@@ -94,6 +96,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
     except asyncio.CancelledError:
         print("Todas las tareas han sido canceladas.")
 
+# Definir funciones auxiliares para el despegue
 async def attempt_takeoff(drone):
     """Intentar armar el dron y comenzar la misión, reintentando si es necesario."""
     max_attempts = 5
@@ -126,8 +129,8 @@ async def attempt_takeoff(drone):
 
     raise RuntimeError("No se pudo armar y despegar el dron después de varios intentos.")
 
+# Definir funciones auxiliares para el registro de datos
 async def log_odometry(drone, writer):
-    global current_lat, current_lon, current_alt, last_lat, last_lon, last_alt
     a = 1
     b = 0
     c = 1
@@ -138,16 +141,14 @@ async def log_odometry(drone, writer):
     async for odom in drone.telemetry.odometry():
         sim_time_us = odom.time_usec
         sim_time_s = sim_time_us / 1e6  # Convertir a segundos
-        x, y, z = odom.position_body.x_m, odom.position_body.y_m, odom.position_body.z_m
         vx, vy, vz = odom.velocity_body.x_m_s, odom.velocity_body.y_m_s, odom.velocity_body.z_m_s
         qw, qx, qy, qz = odom.q.w, odom.q.x, odom.q.y, odom.q.z  # Usamos cuaternión
 
         # Guardar los datos en el archivo CSV junto con la información GPS actual
         writer.writerow({
-            'SimTime': sim_time_s, 'X': x, 'Y': y, 'Z': z,
+            'SimTime': sim_time_s, 'Lat': current_lat, 'Lon': current_lon, 'Alt': current_alt,
             'qw': qw, 'qx': qx, 'qy': qy, 'qz': qz,
             'Vx': vx, 'Vy': vy, 'Vz': vz,
-            'Lat': current_lat, 'Lon': current_lon, 'Alt': current_alt
         })
 
         # Comprobar si el dron ha aterrizado
@@ -160,6 +161,7 @@ async def log_odometry(drone, writer):
                 print("-- El plan de vuelo ha terminado.")
                 return  # Finalizar la función y el script cuando se cumplan las condiciones
 
+# Definir función auxiliar para el registro de datos de GPS
 async def log_gps(drone):
     global current_lat, current_lon, current_alt
     # Leer información de GPS y actualizar las variables globales
@@ -168,6 +170,7 @@ async def log_gps(drone):
         current_lon = gps_info.longitude_deg
         current_alt = gps_info.absolute_altitude_m
 
+# Definir la función principal para ejecutar el script
 async def main():
     # Capturar el argumento de línea de comandos para el mission_name
     mission_name = sys.argv[1]
