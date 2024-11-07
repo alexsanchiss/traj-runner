@@ -79,7 +79,7 @@ async def run(mission_name):  # Recibir el mission_name como argumento
         if not os.path.exists(trayectorias_dir):
             os.makedirs(trayectorias_dir)
         with open(f'{current_dir}/Trayectorias/' + mission_name + '_log.csv', mode='w') as csv_file:
-            fieldnames = ['SimTime', 'X', 'Y', 'Z', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz', 'Lat', 'Lon', 'Alt']
+            fieldnames = ['SimTime', 'Lat', 'Lon', 'Alt', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
