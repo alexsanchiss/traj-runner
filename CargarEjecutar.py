@@ -134,6 +134,7 @@ async def log_odometry(drone, writer):
     a = 1
     b = 0
     c = 1
+    last_sim_time = None
     # Grabar datos de los sensores durante el vuelo
     print("-- Grabando datos de los sensores")
 
@@ -141,14 +142,28 @@ async def log_odometry(drone, writer):
     async for odom in drone.telemetry.odometry():
         sim_time_us = odom.time_usec
         sim_time_s = sim_time_us / 1e6  # Convertir a segundos
+
+        if sim_time_s == last_sim_time:
+            continue
+            
+        last_sim_time = sim_time_s
+
         vx, vy, vz = odom.velocity_body.x_m_s, odom.velocity_body.y_m_s, odom.velocity_body.z_m_s
         qw, qx, qy, qz = odom.q.w, odom.q.x, odom.q.y, odom.q.z  # Usamos cuaternión
 
         # Guardar los datos en el archivo CSV junto con la información GPS actual
         writer.writerow({
-            'SimTime': sim_time_s, 'Lat': current_lat, 'Lon': current_lon, 'Alt': current_alt,
-            'qw': qw, 'qx': qx, 'qy': qy, 'qz': qz,
-            'Vx': vx, 'Vy': vy, 'Vz': vz,
+            'SimTime': round(sim_time_s, 3),
+            'Lat': current_lat,
+            'Lon': current_lon,
+            'Alt': round(current_alt, 3) if current_alt else None,
+            'qw': round(odom.q.w, 7),
+            'qx': round(odom.q.x, 7),
+            'qy': round(odom.q.y, 7),
+            'qz': round(odom.q.z, 7),
+            'Vx': round(odom.velocity_body.x_m_s, 3),
+            'Vy': round(odom.velocity_body.y_m_s, 3),
+            'Vz': round(odom.velocity_body.z_m_s, 3),
         })
 
         # Comprobar si el dron ha aterrizado
