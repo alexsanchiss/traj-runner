@@ -2,13 +2,12 @@ import os
 import json
 import asyncio
 import requests
+import asyncpg
 from dotenv import load_dotenv
-import signal
-import platform
 
 # Cargar variables de entorno
 load_dotenv()
-UAS_PLANNER_IP = os.getenv("UAS_PLANNER_IP", "localhost")
+UAS_PLANNER_DB = os.getenv("UAS_PLANNER_DB", "localhost")
 
 # Obtener el nombre de la distro para asignarla como nombre de la máquina
 machine_name = os.getenv("WSL_DISTRO_NAME", "default_distro_name")
@@ -17,61 +16,54 @@ machine_name = os.getenv("WSL_DISTRO_NAME", "default_distro_name")
 current_dir = os.path.dirname(os.path.abspath(__file__))
 machine_id = None
 
+async def connect_to_db():
+    try:
+        conn = await asyncpg.connect(dsn=UAS_PLANNER_DB, statement_cache_size=0)
+        print("Conexión a la base de datos establecida.")
+        return conn
+    except Exception as e:
+        print(f"Error al conectar con la base de datos: {e}")
+        raise
+
 # Funciones auxiliares para la base de datos
-async def register_or_update_machine():
-    """Registrar la máquina si no existe o actualizar su estado si ya existe."""
+
+async def register_or_update_machine(conn):
     global machine_id
     try:
-        # Verificar si la máquina ya está registrada
-        response = requests.get(f"http://{UAS_PLANNER_IP}/api/machines?name={machine_name}")
+        # Buscar si la máquina ya está registrada
+        query = "SELECT id FROM machine WHERE name = $1"
+        result = await conn.fetchrow(query, machine_name)
 
-        if response.status_code == 200:
-            # Máquina encontrada, actualizamos su estado a 'Disponible'
-            machine_data = response.json()
-            machine_id = machine_data["id"]
-            await update_machine_status("Disponible")
+        if result:
+            # Máquina ya registrada, actualizamos su estado
+            machine_id = result["id"]
+            await update_machine_status(conn, "Disponible")
             print(f"Máquina ya registrada. Estado actualizado a 'Disponible'. ID: {machine_id}")
         else:
-            # Máquina no encontrada, la registramos
-            response = requests.post(
-                f"http://{UAS_PLANNER_IP}/api/machines",
-                json={"name": machine_name, "status": "Disponible"}
-            )
-            if response.status_code == 200 or response.status_code == 201:
-                machine_id = response.json().get("id")
-                print(f"Máquina registrada con ID: {machine_id}")
-            else:
-                print("Error al registrar la máquina:", response.status_code)
+            # Registrar la máquina
+            query = "INSERT INTO machine (name, status) VALUES ($1, $2) RETURNING id"
+            result = await conn.fetchrow(query, machine_name, "Disponible")
+            machine_id = result["id"]
+            print(f"Máquina registrada con ID: {machine_id}")
     except Exception as e:
-        print(f"Error de conexión al registrar/actualizar la máquina: {e}")
+        print(f"Error al registrar/actualizar la máquina: {e}")
 
-async def update_machine_status(status):
-    """Actualizar el estado de la máquina en la base de datos."""
+async def update_machine_status(conn, status):
     if machine_id:
         try:
-            requests.put(
-                f"http://{UAS_PLANNER_IP}/api/machines/{machine_id}",
-                json={"status": status}
-            )
+            query = "UPDATE machine SET status = $1 WHERE id = $2"
+            await conn.execute(query, status, machine_id)
             print(f"Estado de la máquina actualizado a: {status}")
         except Exception as e:
             print(f"Error al actualizar el estado de la máquina: {e}")
 
-async def update_plan_status(plan_id, status, csv_result=None):
-    """Actualizar el estado del plan de vuelo y su CSV resultante."""
+async def update_plan_status(conn, plan_id, status, csv_result=None):
     try:
-        data = {"status": status}
-        if csv_result:
-            data["csvResult"] = csv_result
-
-        response = requests.put(
-            f"http://{UAS_PLANNER_IP}/api/flightPlans/{plan_id}",
-            json=data
-        )
-        if response.status_code == 200:
-            print(f"Estado del plan {plan_id} actualizado a: {status}")
-        else:
-            print(f"Error al actualizar el plan: {response.status_code}")
+        query = 'UPDATE "flightPlan" SET status = $1, "csvResult" = $2 WHERE id = $3'
+        await conn.execute(query, status, "1", plan_id)
+        query = 'INSERT INTO "csvResult" (id, "csvResult") VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET "csvResult" = $2'
+        await conn.execute(query, plan_id, csv_result)
+        print(f"Estado del plan {plan_id} actualizado a: {status}")
     except Exception as e:
         print(f"Error al actualizar el plan {plan_id}: {e}")
 
@@ -132,11 +124,10 @@ async def run_mavsdk_mission(mission_name):
     print("MAVSDK misión finalizada. Cerrando procesos...")
 
 
-async def process_flight_plan(plan):
-    """Procesa el plan de vuelo asignado."""
+async def process_flight_plan(conn, plan):
     plan_id = plan["id"]
     mission_path = os.path.join(current_dir, "Planes", f"{plan_id}.plan")
-    
+
     # Guardar el archivo del plan de vuelo
     try:
         with open(mission_path, 'w') as f:
@@ -144,10 +135,10 @@ async def process_flight_plan(plan):
         print(f"Archivo del plan de vuelo guardado: {mission_path}")
     except Exception as e:
         print(f"Error al guardar el archivo del plan: {e}")
-        await update_machine_status("Error")
+        await update_machine_status(conn, "Error")
         return
 
-    # Ejecutar el procesamiento del plan
+    # Procesar el plan de vuelo
     home_lat, home_lon, home_alt = extract_home_position(mission_path)
     print(home_lat, home_lon, home_alt)
     try:
@@ -156,20 +147,20 @@ async def process_flight_plan(plan):
         await monitor_px4_output(px4_process, plan_id)
     except Exception as e:
         print(f"Error en el procesamiento: {e}")
-        await update_machine_status("Error")
+        await update_machine_status(conn, "Error")
         return
 
-    # Actualizar estado del plan a "procesado"
+    # Leer el resultado CSV y actualizar el plan
     csv_result = await read_csv_result(plan_id)
-    await update_plan_status(plan_id, "procesado", csv_result)
-    
+    await update_plan_status(conn, plan_id, "procesado", csv_result)
+
     # Borrar archivos temporales
     os.remove(mission_path)
     os.remove(f"{current_dir}/Trayectorias/{plan_id}_log.csv")
     print(f"Archivo procesado y eliminado: {mission_path}")
 
     # Actualizar estado de la máquina a "Disponible"
-    await update_machine_status("Disponible")
+    await update_machine_status(conn, "Disponible")
 
 async def read_csv_result(plan_id):
     """Leer el archivo CSV procesado para actualizar el plan de vuelo."""
@@ -178,34 +169,24 @@ async def read_csv_result(plan_id):
         csv_content = csv_file.read()
     return csv_content
 
-async def monitor_flight_plans():
-    """Monitorea la base de datos y procesa un plan si está asignado a esta máquina."""
+# Monitorear planes de vuelo
+async def monitor_flight_plan(conn):
     while True:
         try:
-            # Solicitar planes de vuelo
-            response = requests.get(f"http://{UAS_PLANNER_IP}/api/flightPlans")
-            if response.status_code == 200:
-                plans = response.json()
-                
-                # Buscar un plan asignado a esta máquina
-                for plan in plans:
-                    if plan["machineAssignedName"] == machine_name and plan["status"] == "procesando":
-                        # Procesar el plan de vuelo
-                        await process_flight_plan(plan)
-                        
-                        # Esperar 5 segundos antes de verificar por un nuevo plan
-                        await asyncio.sleep(5)
-                        break  # Salir del ciclo for para evitar escuchar nuevos planes hasta que se complete el actual
-            else:
-                print(f"Error al obtener los planes de vuelo: {response.status_code}")
-            await asyncio.sleep(5)  # Esperar entre cada solicitud
+            query = 'SELECT * FROM "flightPlan" WHERE "machineAssignedName" = $1 AND status = $2'
+            plans = await conn.fetch(query, machine_name, "procesando")
+            
+            for plan in plans:
+                await process_flight_plan(conn, plan)
+            await asyncio.sleep(5)  # Pausa entre verificaciones
         except Exception as e:
             print(f"Error al monitorear los planes de vuelo: {e}")
-            await asyncio.sleep(5)  # Esperar en caso de error para evitar sobrecarga de solicitudes
+            await asyncio.sleep(5)
 
 async def main():
-    await register_or_update_machine()
-    await monitor_flight_plans()
+    conn = await connect_to_db()
+    await register_or_update_machine(conn)
+    await monitor_flight_plan(conn)
 
 if __name__ == "__main__":
     asyncio.run(main())
