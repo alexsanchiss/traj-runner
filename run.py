@@ -125,9 +125,11 @@ async def run_mavsdk_mission(mission_name):
 
 
 async def process_flight_plan(conn, plan):
+    os.makedirs(f"{current_dir}/Planes")
+
     plan_id = plan["id"]
     mission_path = os.path.join(current_dir, "Planes", f"{plan_id}.plan")
-
+    
     # Guardar el archivo del plan de vuelo
     try:
         with open(mission_path, 'w') as f:
