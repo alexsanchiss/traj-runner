@@ -125,8 +125,11 @@ async def run_mavsdk_mission(mission_name):
 
 
 async def process_flight_plan(conn, plan):
-    os.makedirs(f"{current_dir}/Planes")
-
+    if not os.path.exists(f"{current_dir}/Planes"):
+        os.makedirs(f"{current_dir}/Planes")
+    if not os.path.exists(f"{current_dir}/Trayectorias"):
+        os.makedirs(f"{current_dir}/Trayectorias")
+    
     plan_id = plan["id"]
     mission_path = os.path.join(current_dir, "Planes", f"{plan_id}.plan")
     
