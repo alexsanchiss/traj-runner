@@ -8,4 +8,4 @@ EOL
 git pull origin master
 
 # Ejecuta el script principal
-python3 run.py
+
