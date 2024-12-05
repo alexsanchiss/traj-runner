@@ -144,7 +144,7 @@ async def process_flight_plan(conn, plan):
     home_lat, home_lon, home_alt = extract_home_position(mission_path)
     print(home_lat, home_lon, home_alt)
     try:
-        os.chdir(os.path.expanduser("~/PX4-Autopilot"))
+        os.chdir(os.path.expanduser("./PX4-Autopilot"))
         px4_process = await run_px4(home_lat, home_lon, home_alt)
         await monitor_px4_output(px4_process, plan_id)
     except Exception as e:
