@@ -10,7 +10,7 @@ load_dotenv()
 UAS_PLANNER_DB = os.getenv("UAS_PLANNER_DB", "localhost")
 
 # Obtener el nombre de la distro para asignarla como nombre de la máquina
-machine_name = os.getenv("WSL_DISTRO_NAME", "default_distro_name")
+machine_name = os.getenv("WSL_DISTRO_NAME", "holamundo")
 
 # Configuración global
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -57,10 +57,10 @@ async def update_machine_status(conn, status):
         except Exception as e:
             print(f"Error al actualizar el estado de la máquina: {e}")
 
-async def update_plan_status(conn, plan_id, status, csv_result=None):
+async def update_plan_status(conn, plan_id, status, csv_result):
     try:
         query = 'UPDATE "flightPlan" SET status = $1, "csvResult" = $2 WHERE id = $3'
-        await conn.execute(query, status, "1", plan_id)
+        await conn.execute(query, status, 1, plan_id)
         query = 'INSERT INTO "csvResult" (id, "csvResult") VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET "csvResult" = $2'
         await conn.execute(query, plan_id, csv_result)
         print(f"Estado del plan {plan_id} actualizado a: {status}")
@@ -97,19 +97,26 @@ async def run_px4(home_lat, home_lon, home_alt):
     return process
 
 async def monitor_px4_output(process, mission_name):
+    print("Esperando a que PX4 esté listo...")
     while True:
-        print("Esperando a que PX4 esté listo...")
-        line = await process.stdout.readline()
-        if not line:
+        try:
+            line = await process.stdout.readline()
+            if not line:
+                if process.returncode is not None:
+                    print("El proceso PX4 terminó antes de que apareciera 'Ready for takeoff!'")
+                    break
+                continue
+            decoded_line = line.decode().strip()
+            print(decoded_line)
+            if "Ready for takeoff!" in decoded_line:
+                print("Mensaje 'Ready for takeoff!' detectado")
+                await run_mavsdk_mission(mission_name)
+                await shutdown_px4(process)
+                break
+        except Exception as e:
+            print(f"Error al monitorear la salida de PX4: {e}")
             break
-        decoded_line = line.decode().strip()
-        print(decoded_line)
-        if "Ready for takeoff!" in decoded_line:
-            print("Mensaje 'Ready for takeoff!' detectado")
-            await run_mavsdk_mission(mission_name)
-            await shutdown_px4(process)
-            break
-
+            
 async def shutdown_px4(process):
     """Envia el comando de cierre a PX4."""
     print("Enviando comando de shutdown a PX4...")
@@ -183,8 +190,8 @@ async def read_csv_result(plan_id):
 async def monitor_flight_plan(conn):
     while True:
         try:
-            query = 'SELECT * FROM "flightPlan" WHERE "machineAssignedName" = $1 AND status = $2'
-            plans = await conn.fetch(query, machine_name, "procesando")
+            query = 'SELECT * FROM "flightPlan" WHERE "machineAssignedId" = $1 AND status = $2'
+            plans = await conn.fetch(query, machine_id, "procesando")
             
             for plan in plans:
                 await process_flight_plan(conn, plan)
