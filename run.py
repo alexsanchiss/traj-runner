@@ -98,6 +98,7 @@ async def run_px4(home_lat, home_lon, home_alt):
 
 async def monitor_px4_output(process, mission_name):
     while True:
+        print("Esperando a que PX4 esté listo...")
         line = await process.stdout.readline()
         if not line:
             break
