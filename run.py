@@ -31,9 +31,9 @@ async def register_or_update_machine(conn):
     global machine_id
     try:
         # Buscar si la máquina ya está registrada
-        query = "SELECT id FROM machine WHERE name = $1"
-        result = await conn.fetchrow(query, machine_name)
-
+        # query = "SELECT id FROM machine WHERE name = $1"
+        # result = await conn.fetchrow(query, machine_name)
+        result = None
         if result:
             # Máquina ya registrada, actualizamos su estado
             machine_id = result["id"]
