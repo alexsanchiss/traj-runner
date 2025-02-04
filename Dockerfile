@@ -15,7 +15,9 @@ RUN apt-get update && \
     ca-certificates \
     gnupg \
     lsb-core \
-    wget
+    wget \
+    procps \
+    sudo
 
 # Clona el repositorio de PX4 y configura el PPA
 RUN git clone https://github.com/PX4/PX4-Autopilot.git --recursive && \
@@ -25,6 +27,17 @@ RUN git clone https://github.com/PX4/PX4-Autopilot.git --recursive && \
 
 # Instala las dependencias de PX4
 RUN bash ./PX4-Autopilot/Tools/setup/ubuntu.sh
+
+RUN cd PX4-Autopilot && \
+    (make px4_sitl gazebo-classic | tee build.log & \
+    px4_pid=$!; \
+    while sleep 1; do \
+        if grep -q "Ready for takeoff!" build.log; then \
+            echo "PX4 SITL está listo. Deteniendo el proceso."; \
+            kill -9 $px4_pid; \
+            break; \
+        fi; \
+    done)
 
 # Clona el repositorio traj-runner e instala sus dependencias de Python
 RUN git clone https://github.com/0xMastxr/traj-runner.git && \

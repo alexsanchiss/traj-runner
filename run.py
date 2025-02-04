@@ -101,6 +101,7 @@ async def monitor_px4_output(process, mission_name):
     while True:
         try:
             line = await process.stdout.readline()
+            print(line)
             if not line:
                 if process.returncode is not None:
                     print("El proceso PX4 terminó antes de que apareciera 'Ready for takeoff!'")
