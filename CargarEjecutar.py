@@ -143,8 +143,9 @@ async def log_odometry(drone, writer):
         sim_time_us = odom.time_usec
         sim_time_s = sim_time_us / 1e6  # Convertir a segundos
 
-        if round(sim_time_s,1) == round(last_sim_time,1):
-            continue
+        if sim_time_s is not None and last_sim_time is not None:
+            if round(sim_time_s, 1) == round(last_sim_time, 1):
+                continue
             
         last_sim_time = sim_time_s
 
