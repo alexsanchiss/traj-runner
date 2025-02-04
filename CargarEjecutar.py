@@ -157,14 +157,14 @@ async def log_odometry(drone, writer):
             'SimTime': round(sim_time_s, 1),
             'Lat': current_lat,
             'Lon': current_lon,
-            'Alt': round(current_alt, 2) if current_alt else None,
+            'Alt': round(current_alt, 3) if current_alt else None,
             'qw': round(odom.q.w, 1),
             'qx': round(odom.q.x, 1),
             'qy': round(odom.q.y, 1),
             'qz': round(odom.q.z, 1),
-            'Vx': round(odom.velocity_body.x_m_s, 2),
-            'Vy': round(odom.velocity_body.y_m_s, 2),
-            'Vz': round(odom.velocity_body.z_m_s, 2),
+            'Vx': round(odom.velocity_body.x_m_s, 3),
+            'Vy': round(odom.velocity_body.y_m_s, 3),
+            'Vz': round(odom.velocity_body.z_m_s, 3),
         })
 
         # Comprobar si el dron ha aterrizado
