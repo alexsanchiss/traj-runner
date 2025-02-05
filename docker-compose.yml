@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  px4_traj_runner:
+    image: px4_traj_runner
+    deploy:
+      replicas: 6  # Ejecuta 30 instancias
+    restart: "no"
