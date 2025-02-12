@@ -40,20 +40,12 @@ async def register_or_update_machine(conn):
     global machine_id
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT id FROM machine WHERE name = %s", (machine_name,))
-            result = await cur.fetchone()
-            
-            if result:
-                machine_id = result["id"]
-                await update_machine_status(conn, "Disponible")
-                print(f"Máquina ya registrada. Estado actualizado a 'Disponible'. ID: {machine_id}")
-            else:
-                await cur.execute("INSERT INTO machine (name, status) VALUES (%s, %s)", (machine_name, "Disponible"))
-                await cur.execute("SELECT LAST_INSERT_ID()")
-                machine_id = (await cur.fetchone())["LAST_INSERT_ID()"]
-                print(f"Máquina registrada con ID: {machine_id}")
+            await cur.execute("INSERT INTO machine (name, status) VALUES (%s, %s)", (machine_name, "Disponible"))
+            await cur.execute("SELECT LAST_INSERT_ID()")
+            machine_id = (await cur.fetchone())["LAST_INSERT_ID()"]
+            print(f"Máquina registrada con ID: {machine_id}")
     except Exception as e:
-        print(f"Error al registrar/actualizar la máquina: {e}")
+        print(f"Error al registrar la máquina: {e}")
 
 async def update_machine_status(conn, status):
     if machine_id:
