@@ -2,12 +2,15 @@ import os
 import json
 import asyncio
 import requests
-import asyncpg
+import aiomysql
 from dotenv import load_dotenv
 
 # Cargar variables de entorno
 load_dotenv()
 UAS_PLANNER_DB = os.getenv("UAS_PLANNER_DB", "localhost")
+DB_USER = os.getenv("DB_USER", "asanmar4")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_NAME = os.getenv("DB_NAME", "upps")
 
 # Obtener el nombre de la distro para asignarla como nombre de la máquina
 machine_name = os.getenv("WSL_DISTRO_NAME", "holamundo")
@@ -18,7 +21,13 @@ machine_id = None
 
 async def connect_to_db():
     try:
-        conn = await asyncpg.connect(dsn=UAS_PLANNER_DB, statement_cache_size=0)
+        conn = await aiomysql.connect(
+            host=UAS_PLANNER_DB,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            db=DB_NAME,
+            autocommit=True
+        )
         print("Conexión a la base de datos establecida.")
         return conn
     except Exception as e:
@@ -30,40 +39,40 @@ async def connect_to_db():
 async def register_or_update_machine(conn):
     global machine_id
     try:
-        # Buscar si la máquina ya está registrada
-        # query = "SELECT id FROM machine WHERE name = $1"
-        # result = await conn.fetchrow(query, machine_name)
-        result = None
-        if result:
-            # Máquina ya registrada, actualizamos su estado
-            machine_id = result["id"]
-            await update_machine_status(conn, "Disponible")
-            print(f"Máquina ya registrada. Estado actualizado a 'Disponible'. ID: {machine_id}")
-        else:
-            # Registrar la máquina
-            query = "INSERT INTO machine (name, status) VALUES ($1, $2) RETURNING id"
-            result = await conn.fetchrow(query, machine_name, "Disponible")
-            machine_id = result["id"]
-            print(f"Máquina registrada con ID: {machine_id}")
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT id FROM machine WHERE name = %s", (machine_name,))
+            result = await cur.fetchone()
+            
+            if result:
+                machine_id = result["id"]
+                await update_machine_status(conn, "Disponible")
+                print(f"Máquina ya registrada. Estado actualizado a 'Disponible'. ID: {machine_id}")
+            else:
+                await cur.execute("INSERT INTO machine (name, status) VALUES (%s, %s)", (machine_name, "Disponible"))
+                await cur.execute("SELECT LAST_INSERT_ID()")
+                machine_id = (await cur.fetchone())["LAST_INSERT_ID()"]
+                print(f"Máquina registrada con ID: {machine_id}")
     except Exception as e:
         print(f"Error al registrar/actualizar la máquina: {e}")
 
 async def update_machine_status(conn, status):
     if machine_id:
         try:
-            query = "UPDATE machine SET status = $1 WHERE id = $2"
-            await conn.execute(query, status, machine_id)
-            print(f"Estado de la máquina actualizado a: {status}")
+            async with conn.cursor() as cur:
+                await cur.execute("UPDATE machine SET status = %s WHERE id = %s", (status, machine_id))
+                print(f"Estado de la máquina actualizado a: {status}")
         except Exception as e:
             print(f"Error al actualizar el estado de la máquina: {e}")
 
 async def update_plan_status(conn, plan_id, status, csv_result):
     try:
-        query = 'UPDATE "flightPlan" SET status = $1, "csvResult" = $2 WHERE id = $3'
-        await conn.execute(query, status, 1, plan_id)
-        query = 'INSERT INTO "csvResult" (id, "csvResult") VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET "csvResult" = $2'
-        await conn.execute(query, plan_id, csv_result)
-        print(f"Estado del plan {plan_id} actualizado a: {status}")
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE flightPlan SET status = %s, csvResult = %s WHERE id = %s", (status, 1, plan_id))
+            await cur.execute("""
+                INSERT INTO csvResult (id, csvResult) VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE csvResult = %s
+            """, (plan_id, csv_result, csv_result))
+            print(f"Estado del plan {plan_id} actualizado a: {status}")
     except Exception as e:
         print(f"Error al actualizar el plan {plan_id}: {e}")
 
@@ -191,11 +200,13 @@ async def read_csv_result(plan_id):
 async def monitor_flight_plan(conn):
     while True:
         try:
-            query = 'SELECT * FROM "flightPlan" WHERE "machineAssignedId" = $1 AND status = $2'
-            plans = await conn.fetch(query, machine_id, "procesando")
-            
-            for plan in plans:
-                await process_flight_plan(conn, plan)
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute("SELECT * FROM flightPlan WHERE machineAssignedId = %s AND status = %s", (machine_id, "procesando"))
+                plans = await cur.fetchall()
+                
+                for plan in plans:
+                    await process_flight_plan(conn, plan)
+
             await asyncio.sleep(5)  # Pausa entre verificaciones
         except Exception as e:
             print(f"Error al monitorear los planes de vuelo: {e}")
