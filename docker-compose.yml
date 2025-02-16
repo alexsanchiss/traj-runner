@@ -2,7 +2,12 @@ version: '3.8'
 
 services:
   px4_traj_runner:
-    image: px4_traj_runner
+    image: px4-traj-runner
     deploy:
-      replicas: 6  # Ejecuta 30 instancias
+      replicas: 8  # 8 contenedores (Número de cores / 2)
+      resources:
+        limits:
+          cpus: "2"  # Cada contenedor usa 2 CPU completa
+        reservations:
+          cpus: "2"  # Reserva 2 CPU por contenedor
     restart: "no"
