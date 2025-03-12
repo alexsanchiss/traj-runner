@@ -88,7 +88,6 @@ async def run_px4(home_lat, home_lon, home_alt):
     env = os.environ.copy()
     env.update({
         "PX4_SIM_SPEED_FACTOR": "50",
-        "EKF2_GPS_P_NOISE" : "5",
         "PX4_HOME_LON": str(home_lon),
         "PX4_HOME_ALT": str(home_alt),
         "PX4_HOME_LAT": str(home_lat)
