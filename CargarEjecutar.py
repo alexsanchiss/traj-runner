@@ -34,10 +34,6 @@ async def run(mission_name):  # Recibir el mission_name como argumento
                 print(f"-- Conectado al dron!")
                 break
 
-        print("Cambiando parámetro EKF2_GPS_P_NOISE a 5...")
-        await drone.param.set_param_float("EKF2_GPS_P_NOISE", 5.0)
-        print("Parámetro cambiado con éxito.")
-        
         # Leer el archivo JSON de la misión
         mission_path = f"{current_dir}/Planes/{mission_name}.plan"  # Usar mission_name del argumento
         with open(mission_path, 'r') as f:
