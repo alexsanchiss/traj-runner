@@ -3,10 +3,11 @@
 import asyncio
 import csv
 import json
-from mavsdk import System
 import time
 import sys
 import os
+
+from mavsdk import System
 
 # Variables globales para almacenar los datos de GPS y usarlos en el bucle de odometría
 global current_lat, current_lon, current_alt, last_lat, last_lon, last_alt, inic_alt

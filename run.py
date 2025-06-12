@@ -87,7 +87,7 @@ async def run_px4(home_lat, home_lon, home_alt):
     ]
     env = os.environ.copy()
     env.update({
-        "PX4_SIM_SPEED_FACTOR": "50",
+        "PX4_SIM_SPEED_FACTOR": "1",
         "PX4_HOME_LON": str(home_lon),
         "PX4_HOME_ALT": str(home_alt),
         "PX4_HOME_LAT": str(home_lat)
@@ -128,7 +128,7 @@ async def shutdown_px4(process):
 
 async def run_mavsdk_mission(mission_name):
     """Ejecuta el script de MAVSDK en un nuevo proceso."""
-    mavsdk_command = ["python3", f"{current_dir}/CargarEjecutar.py", str(mission_name)]
+    mavsdk_command = ["python3", f"{current_dir}/CargarEjecutarAMQP.py", str(mission_name)]
     mavsdk_process = await asyncio.create_subprocess_exec(*mavsdk_command)
     await mavsdk_process.wait()  # Esperar a que el script MAVSDK termine
     print("MAVSDK misión finalizada. Cerrando procesos...")
