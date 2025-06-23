@@ -83,11 +83,11 @@ def extract_home_position(mission_path):
 async def run_px4(home_lat, home_lon, home_alt):
     """Ejecuta el comando PX4 con las coordenadas de hogar y monitorea la salida."""
     command = [
-        "make", "px4_sitl", "gazebo-classic_standard_vtol"
+        "make", "px4_sitl", "gazebo-classic"
     ]
     env = os.environ.copy()
     env.update({
-        "PX4_SIM_SPEED_FACTOR": "1",
+        "PX4_SIM_SPEED_FACTOR": "50",
         "PX4_HOME_LON": str(home_lon),
         "PX4_HOME_ALT": str(home_alt),
         "PX4_HOME_LAT": str(home_lat)
