@@ -145,7 +145,7 @@ async def log_odometry(drone, writer):
         sim_time_s = sim_time_us / 1e6  # Convertir a segundos
 
         if sim_time_s is not None and last_sim_time is not None:
-            if round(sim_time_s, 1) == round(last_sim_time, 1):
+            if round(sim_time_s, 0) == round(last_sim_time, 0):
                 continue
             
         last_sim_time = sim_time_s
@@ -155,9 +155,9 @@ async def log_odometry(drone, writer):
 
         # Guardar los datos en el archivo CSV junto con la información GPS actual
         writer.writerow({
-            'SimTime': round(sim_time_s, 1),
-            'Lat': current_lat,
-            'Lon': current_lon,
+            'SimTime': round(sim_time_s, 2),
+            'Lat': round(current_lat,7),
+            'Lon': round(current_lon,7),
             'Alt': round(current_alt, 3) if current_alt else None,
             'qw': round(odom.q.w, 0),
             'qx': round(odom.q.x, 0),
