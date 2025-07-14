@@ -170,8 +170,13 @@ async def process_flight_plan(conn, plan):
         return
 
     # Leer el resultado CSV y actualizar el plan
-    csv_result = await read_csv_result(plan_id)
-    await update_plan_status(conn, plan_id, "procesado", csv_result)
+    csv_path = os.path.join(current_dir, "Trayectorias", f"{plan_id}_log.csv")
+    csv_size = os.path.getsize(csv_path)
+    if csv_size <= 2048:
+        await update_plan_status(conn, plan_id, "en cola", "")
+    else:
+        csv_result = await read_csv_result(plan_id)
+        await update_plan_status(conn, plan_id, "procesado", csv_result)
 
     # Borrar archivos temporales
     os.remove(mission_path)
