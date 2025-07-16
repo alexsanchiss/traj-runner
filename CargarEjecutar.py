@@ -136,8 +136,12 @@ async def log_odometry(drone, writer):
     b = 0
     c = 1
     last_sim_time = None
-    # Grabar datos de los sensores durante el vuelo
+    # Grabando datos de los sensores durante el vuelo
     print("-- Grabando datos de los sensores")
+
+    # Definir la frecuencia de datos esperada (ajustar si cambia el filtrado)
+    datos_por_segundo = 1  # Cambiar este valor si el filtrado de datos cambia
+    umbral_espera = 20 * datos_por_segundo  # Esperar 20 segundos tras despegue para empezar a comprobar si ha aterrizado.
 
     # Crear un bucle para leer datos de odometría
     async for odom in drone.telemetry.odometry():
@@ -147,7 +151,6 @@ async def log_odometry(drone, writer):
         if sim_time_s is not None and last_sim_time is not None:
             if round(sim_time_s, 0) == round(last_sim_time, 0):
                 continue
-            
         last_sim_time = sim_time_s
 
         vx, vy, vz = odom.velocity_body.x_m_s, odom.velocity_body.y_m_s, odom.velocity_body.z_m_s
@@ -171,10 +174,10 @@ async def log_odometry(drone, writer):
         # Comprobar si el dron ha aterrizado
         if current_lat is not None and current_lon is not None and current_alt is not None and inic_alt is not None:
             a += 1
-            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt - inic_alt) < 0.5 and a > 1000):
+            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt - inic_alt) < 0.5 and a > umbral_espera):
                 b = 1
                 c = a
-            if b == 1 and (a - c) > 1000:
+            if b == 1 and (a - c) > umbral_espera:
                 print("-- El plan de vuelo ha terminado.")
                 return  # Finalizar la función y el script cuando se cumplan las condiciones
 
