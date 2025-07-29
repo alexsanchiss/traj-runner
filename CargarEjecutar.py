@@ -158,17 +158,17 @@ async def log_odometry(drone, writer):
 
         # Guardar los datos en el archivo CSV junto con la información GPS actual
         writer.writerow({
-            'SimTime': round(sim_time_s, 2),
+            'SimTime': round(sim_time_s, 1),
             'Lat': round(current_lat,7),
             'Lon': round(current_lon,7),
-            'Alt': round(current_alt, 3) if current_alt else None,
+            'Alt': round(current_alt, 2) if current_alt else None,
             'qw': round(odom.q.w, 0),
             'qx': round(odom.q.x, 0),
             'qy': round(odom.q.y, 0),
             'qz': round(odom.q.z, 0),
-            'Vx': round(odom.velocity_body.x_m_s, 3),
-            'Vy': round(odom.velocity_body.y_m_s, 3),
-            'Vz': round(odom.velocity_body.z_m_s, 3),
+            'Vx': round(odom.velocity_body.x_m_s, 2),
+            'Vy': round(odom.velocity_body.y_m_s, 2),
+            'Vz': round(odom.velocity_body.z_m_s, 2),
         })
 
         # Comprobar si el dron ha aterrizado
