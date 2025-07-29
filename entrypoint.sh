@@ -3,7 +3,7 @@
 # Actualiza el repositorio traj-runner
 cd ../traj-runner
 cat <<EOL > /.env
-UAS_PLANNER_DB="158.42.167.190"
+UAS_PLANNER_DB="158.42.167.172"
 EOL
 git pull origin master
 pip3 install -r requirements.txt
