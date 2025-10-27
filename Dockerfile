@@ -1,5 +1,5 @@
-# Usa Ubuntu 20.04 como base
-FROM ubuntu:20.04
+# Usa Ubuntu 22.04 como base
+FROM ubuntu:22.04
 
 # Configura las variables de entorno necesarias
 ENV DEBIAN_FRONTEND=noninteractive
