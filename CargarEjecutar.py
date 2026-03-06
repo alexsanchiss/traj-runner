@@ -161,7 +161,7 @@ async def log_odometry(drone, writer):
             'SimTime': round(sim_time_s, 1),
             'Lat': round(current_lat,7),
             'Lon': round(current_lon,7),
-            'Alt': round(current_alt, 2) if current_alt else None,
+            'Alt': round(current_alt - inic_alt, 2) if current_alt else None,
             'qw': round(odom.q.w, 0),
             'qx': round(odom.q.x, 0),
             'qy': round(odom.q.y, 0),
