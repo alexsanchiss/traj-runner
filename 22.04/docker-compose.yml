@@ -2,9 +2,9 @@ version: '3.8'
 
 services:
   px4_traj_runner:
-    image: px4-traj-runner
+    image: px4-traj-runner-22.04
     deploy:
-      replicas: 24
+      replicas: 20
       resources:
         limits:
           cpus: "2.0"
