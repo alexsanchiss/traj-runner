@@ -4,7 +4,7 @@ services:
   px4_traj_runner:
     image: px4-traj-runner
     deploy:
-      replicas: 24
+      replicas: 20
       resources:
         limits:
           cpus: "2.0"
