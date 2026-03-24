@@ -3,6 +3,7 @@
 import asyncio
 import csv
 import json
+import math
 from mavsdk import System
 import time
 import sys
@@ -81,15 +82,25 @@ async def run(mission_name):  # Recibir el mission_name como argumento
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
-            tasks = [
-                asyncio.create_task(log_odometry(drone, writer)),
-                asyncio.create_task(log_gps(drone))
-            ]
+            odom_task = asyncio.create_task(log_odometry(drone, writer))
+            gps_task = asyncio.create_task(log_gps(drone))
+            
+            # Esperamos a que termine log_odometry (fin de mision/aterrizaje)
+            # Usamos wait para poder manejar excepciones o cancelaciones de manera segura
+            done, pending = await asyncio.wait({odom_task, gps_task}, return_when=asyncio.FIRST_COMPLETED)
 
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            print("-- Condición de fin detectada. Limpiando tareas...")
 
-            for task in pending:
-                task.cancel()
+            # Cancelamos explícitamente todo lo que siga vivo
+            tasks_to_cancel = [gps_task, odom_task]
+            for task in tasks_to_cancel:
+                if not task.done():
+                    task.cancel()
+            
+            # Esperamos a que se completen las cancelaciones para evitar errores como "Event Loop Closed"
+            # return_exceptions=True silencia CancelledError
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            print("-- Tareas cerradas correctamente.")
 
     except asyncio.CancelledError:
         print("Todas las tareas han sido canceladas.")
@@ -128,41 +139,69 @@ async def attempt_takeoff(drone):
 
 async def log_odometry(drone, writer):
     global current_lat, current_lon, current_alt, last_lat, last_lon, last_alt
-    a = 1
-    b = 0
-    c = 1
+    first_near_goal_time = None
+    last_logged_second = None
     # Grabar datos de los sensores durante el vuelo
     print("-- Grabando datos de los sensores")
 
-    datos_por_segundo = 1
-    umbral_espera = 20 * datos_por_segundo
+    umbral_espera_s = 20.0
 
     # Crear un bucle para leer datos de odometría
     async for odom in drone.telemetry.odometry():
         sim_time_us = odom.time_usec
         sim_time_s = sim_time_us / 1e6  # Convertir a segundos
+
+        # Limitar el registro a 1 Hz según segundo simulado.
+        current_second = math.floor(sim_time_s)
+        if last_logged_second is not None and current_second == last_logged_second:
+            continue
+        last_logged_second = current_second
+
         vx, vy, vz = odom.velocity_body.x_m_s, odom.velocity_body.y_m_s, odom.velocity_body.z_m_s
         qw, qx, qy, qz = odom.q.w, odom.q.x, odom.q.y, odom.q.z  # Usamos cuaternión
 
         # Guardar los datos en el archivo CSV junto con la información GPS actual
         writer.writerow({
-            'SimTime': sim_time_s,
-            'Lat': current_lat,
-            'Lon': current_lon,
+            'SimTime': round(sim_time_s, 1),
+            'Lat': round(current_lat, 7) if current_lat else None,
+            'Lon': round(current_lon, 7) if current_lon else None,
             'Alt': round(current_alt - inic_alt, 2) if current_alt else None,
-            'qw': qw, 'qx': qx, 'qy': qy, 'qz': qz,
-            'Vx': vx, 'Vy': vy, 'Vz': vz
+            'qw': round(qw, 4),
+            'qx': round(qx, 4),
+            'qy': round(qy, 4),
+            'qz': round(qz, 4),
+            'Vx': round(vx, 2),
+            'Vy': round(vy, 2),
+            'Vz': round(vz, 2)
         })
 
         # Comprobar si el dron ha aterrizado
         if current_lat is not None and current_lon is not None and current_alt is not None and inic_alt is not None:
-            a += 1
-            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt - inic_alt) < 0.5 and a > umbral_espera):
-                b = 1
-                c = a
-            if b == 1 and (a - c) > umbral_espera:
-                print("-- El plan de vuelo ha terminado.")
-                return  # Finalizar la función y el script cuando se cumplan las condiciones
+            # Calculo de altitud relativa
+            rel_alt_current = current_alt - inic_alt
+            
+            # Condicion 1: Cerca del objetivo final (logica original)
+            near_goal = (
+                abs(current_lat - last_lat) < 0.01 and
+                abs(current_lon - last_lon) < 0.01 and
+                abs(rel_alt_current - (last_alt if last_alt else 0)) < 0.5
+            )
+
+            # Condicion 2: Aterrizaje o Crash (velocidad horizontal nula cerca del suelo)
+            vh = math.sqrt(vx*vx + vy*vy)
+            landed_or_stopped = (rel_alt_current < 1.0) and (vh < 0.1)
+            
+            # Condicion 3: Fallo catastrafico hundido bajo tierra (-5m)
+            underground_cutoff = rel_alt_current < -5.0
+
+            if near_goal or landed_or_stopped or underground_cutoff:
+                if first_near_goal_time is None:
+                    first_near_goal_time = sim_time_s
+                elif (sim_time_s - first_near_goal_time) >= umbral_espera_s:
+                    print(f"-- Fin detectado (Goal={near_goal}, Landed/Stopped={landed_or_stopped}, Underground={underground_cutoff})")
+                    return  # Finalizar la función y el script
+            else:
+                first_near_goal_time = None
 
 async def log_gps(drone):
     global current_lat, current_lon, current_alt

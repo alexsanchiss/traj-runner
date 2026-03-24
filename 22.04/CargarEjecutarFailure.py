@@ -3,6 +3,7 @@
 import asyncio
 import csv
 import json
+import math
 import time
 import sys
 import os
@@ -82,17 +83,25 @@ async def run(mission_name, unit_str, f_type_str):
             writer.writeheader()
 
             inject_task = asyncio.create_task(inject_failure_on_cruise(drone, unit_str, f_type_str))
+            gps_task = asyncio.create_task(log_gps(drone))
+            odom_task = asyncio.create_task(log_odometry(drone, writer))
 
-            tasks = [
-                asyncio.create_task(log_gps(drone)),
-                asyncio.create_task(log_odometry(drone, writer))
-            ]
+            # Esperamos a que termine log_odometry (fin de mision/aterrizaje)
+            # Usamos wait para poder manejar excepciones o cancelaciones de manera segura
+            done, pending = await asyncio.wait({odom_task, gps_task}, return_when=asyncio.FIRST_COMPLETED)
 
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            print("-- Condición de fin detectada. Limpiando tareas...")
 
-            inject_task.cancel()
-            for task in pending:
-                task.cancel()
+            # Cancelamos explícitamente todo lo que siga vivo
+            tasks_to_cancel = [inject_task, gps_task, odom_task]
+            for task in tasks_to_cancel:
+                if not task.done():
+                    task.cancel()
+            
+            # Esperamos a que se completen las cancelaciones para evitar errores como "Event Loop Closed"
+            # return_exceptions=True silencia CancelledError
+            await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+            print("-- Tareas cerradas correctamente.")
 
     except asyncio.CancelledError:
         print("Todas las tareas han sido canceladas.")
@@ -161,23 +170,20 @@ async def inject_failure_on_cruise(drone, unit_str, f_type_str):
         print(f"Error crítico enviando comando por Shell: {e}")
 
 async def log_odometry(drone, writer):
-    a = 1
-    b = 0
-    c = 1
-    last_sim_time = None
+    first_near_goal_time = None
+    last_logged_second = None
     print("-- Grabando datos de los sensores")
 
-    datos_por_segundo = 1
-    umbral_espera = 20 * datos_por_segundo
+    umbral_espera_s = 20.0
 
     async for odom in drone.telemetry.odometry():
         sim_time_us = odom.time_usec
         sim_time_s = sim_time_us / 1e6
 
-        if sim_time_s is not None and last_sim_time is not None:
-            if round(sim_time_s, 0) == round(last_sim_time, 0):
-                continue
-        last_sim_time = sim_time_s
+        current_second = math.floor(sim_time_s)
+        if last_logged_second is not None and current_second == last_logged_second:
+            continue
+        last_logged_second = current_second
 
         writer.writerow({
             'SimTime': round(sim_time_s, 1),
@@ -194,13 +200,40 @@ async def log_odometry(drone, writer):
         })
 
         if current_lat is not None and current_lon is not None and current_alt is not None and inic_alt is not None:
-            a += 1
-            if (b == 0 and abs(current_lat - last_lat) < 0.01 and abs(current_lon - last_lon) < 0.01 and abs(current_alt - last_alt - inic_alt) < 0.5 and a > umbral_espera):
-                b = 1
-                c = a
-            if b == 1 and (a - c) > umbral_espera:
-                print("-- El plan de vuelo o fallo ha terminado por inactividad física.")
-                return
+            # Calculo de altitud relativa
+            rel_alt_current = current_alt - inic_alt
+            
+            # Condicion 1: Cerca del objetivo final (logica original)
+            # Nota: la tolerancia de 0.01 grados es amplia (~1km), se mantiene por compatibilidad si asi se desea, 
+            # pero para aterrizaje preciso se requieren otras condiciones.
+            near_goal = (
+                abs(current_lat - last_lat) < 0.01 and
+                abs(current_lon - last_lon) < 0.01 and
+                abs(rel_alt_current - (last_alt if last_alt else 0)) < 0.5
+            )
+
+            # Condicion 2: Aterrizaje o Crash (Peticion usuario)
+            # Si estamos por debajo de 1m (o bajo tierra) y la velocidad horizontal es nula.
+            vx = odom.velocity_body.x_m_s
+            vy = odom.velocity_body.y_m_s
+            # Velocidad horizontal
+            vh = math.sqrt(vx*vx + vy*vy)
+            
+            # Si altitud relativa < 1.0m (o negativa) Y estamos quietos
+            landed_or_stopped = (rel_alt_current < 1.0) and (vh < 0.1)
+            
+            # Condicion 3: Fallo catastrafico hundido bajo tierra
+            # Si descendemos mas alla de -5m, cortamos para no simular eternamente caida al vacio
+            underground_cutoff = rel_alt_current < -5.0
+
+            if near_goal or landed_or_stopped or underground_cutoff:
+                if first_near_goal_time is None:
+                    first_near_goal_time = sim_time_s
+                elif (sim_time_s - first_near_goal_time) >= umbral_espera_s:
+                    print(f"-- Fin detectado (Goal={near_goal}, Landed/Stopped={landed_or_stopped}, Underground={underground_cutoff})")
+                    return
+            else:
+                first_near_goal_time = None
 
 async def log_gps(drone):
     global current_lat, current_lon, current_alt

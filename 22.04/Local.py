@@ -19,9 +19,10 @@ def extract_home_position(mission_path):
     raise ValueError("No se encontró la posición planificada en el archivo de misión.")
 
 async def run_px4(home_lat, home_lon, home_alt):
-    command = ["make", "px4_sitl", "gz_x500"]
     sim_speed_factor = os.getenv("SIM_SPEED_FACTOR", "50")
     headless = os.getenv("HEADLESS", "1")
+    world_speed_factor = float(os.getenv("WORLD_SPEED_FACTOR", "50"))
+    command = ["make", "px4_sitl", "gz_x500", f"SIM_SPEED_FACTOR={sim_speed_factor}"]
     
     px4_dir = os.path.expanduser("../PX4-Autopilot")
     worlds_dir = os.path.join(px4_dir, "Tools/simulation/gz/worlds")
@@ -34,7 +35,24 @@ async def run_px4(home_lat, home_lon, home_alt):
         world_xml = re.sub(r'<latitude_deg>[^<]*</latitude_deg>', f'<latitude_deg>{home_lat}</latitude_deg>', world_xml)
         world_xml = re.sub(r'<longitude_deg>[^<]*</longitude_deg>', f'<longitude_deg>{home_lon}</longitude_deg>', world_xml)
         world_xml = re.sub(r'<elevation>[^<]*</elevation>', f'<elevation>{home_alt}</elevation>', world_xml)
+
+        # En gz_x500 la velocidad efectiva depende de la física del mundo, no de PX4_SIM_SPEED_FACTOR.
+        base_max_step_size = 0.004
+        base_real_time_update_rate = 250.0
+        world_real_time_update_rate = max(1.0, base_real_time_update_rate * world_speed_factor)
+        world_xml = re.sub(r'<max_step_size>[^<]*</max_step_size>', f'<max_step_size>{base_max_step_size}</max_step_size>', world_xml, count=1)
+        world_xml = re.sub(r'<real_time_update_rate>[^<]*</real_time_update_rate>', f'<real_time_update_rate>{world_real_time_update_rate:.3f}</real_time_update_rate>', world_xml, count=1)
+        # El real_time_factor actúa como límite superior (throttling). Si se deja en 1.0, Gazebo frena para no superar tiempo real.
+        # Se debe establecer al mismo factor deseado (o 0 para "lo más rápido posible").
+        world_xml = re.sub(r'<real_time_factor>[^<]*</real_time_factor>', f'<real_time_factor>{world_speed_factor}</real_time_factor>', world_xml, count=1)
         world_xml = world_xml.replace('<world name="default">', '<world name="custom_mission_world">')
+
+        # ACTUALIZACION: Aumentar el tamaño del plano de suelo (ground_plane) para cubrir al menos 10km de radio.
+        # En el default.sdf, la colisión suele ser <size>1 1</size> (infinito en teoría, pero a veces acotado) y visual <size>500 500</size>.
+        # Reemplazamos ambas ocurrencias para garantizar suelo en 20x20km.
+        world_xml = world_xml.replace('<size>1 1</size>', '<size>20000 20000</size>')
+        world_xml = world_xml.replace('<size>500 500</size>', '<size>20000 20000</size>')
+        # Ajustar también la textura visual si es necesario, pero el tamaño es lo critico para colisiones.
 
         with open(custom_world_path, 'w') as f:
             f.write(world_xml)
@@ -44,12 +62,16 @@ async def run_px4(home_lat, home_lon, home_alt):
     env = os.environ.copy()
     env.update({
         "HEADLESS": headless,
+        "SIM_SPEED_FACTOR": str(sim_speed_factor),
         "PX4_SIM_SPEED_FACTOR": str(sim_speed_factor),
         "PX4_HOME_LON": str(home_lon),
         "PX4_HOME_ALT": str(home_alt),
         "PX4_HOME_LAT": str(home_lat),
         "PX4_GZ_WORLD": "custom_mission_world"
     })
+
+    print(f"-- Lanzando PX4 con SIM_SPEED_FACTOR={sim_speed_factor} (compat), WORLD_SPEED_FACTOR={world_speed_factor}")
+    print(f"-- Mundo custom physics: max_step_size=0.004, real_time_update_rate={world_real_time_update_rate:.3f}")
     
     process = await asyncio.create_subprocess_exec(
         *command, 
