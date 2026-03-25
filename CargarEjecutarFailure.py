@@ -154,11 +154,13 @@ async def run(mission_name, unit_str, f_type_str):
                 break
 
         try:
+            print("Habilitando SYS_FAILURE_EN...")
             await drone.param.set_param_int("SYS_FAILURE_EN", 1)
-        except:
-            pass 
+        except Exception as e:
+            print(f"ADVERTENCIA CRÍTICA: Fallo al habilitar SYS_FAILURE_EN: {e}") 
 
         mission_path = f"{current_dir}/Planes/{mission_name}.plan"
+
         print(f"Leyendo misión: {mission_path}")
         with open(mission_path, 'r') as f:
             mission_json = json.load(f)
@@ -207,7 +209,7 @@ async def run(mission_name, unit_str, f_type_str):
         
         print(f"Iniciando log en: {csv_filename}")
         with open(csv_filename, mode='w', newline='') as csv_file:
-            fieldnames = ['SimTime', 'Lat', 'Lon', 'Alt', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz']
+            fieldnames = ['SimTime', 'Lat', 'Lon', 'Alt', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz', 'FailureRequested', 'FailureApplied']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 

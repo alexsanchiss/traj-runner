@@ -160,7 +160,7 @@ async def log_odometry(drone, writer):
         vx, vy, vz = odom.velocity_body.x_m_s, odom.velocity_body.y_m_s, odom.velocity_body.z_m_s
         qw, qx, qy, qz = odom.q.w, odom.q.x, odom.q.y, odom.q.z  # Usamos cuaternión
 
-        # Guardar los datos en el archivo CSV junto con la información GPS actual
+        # Logging robusto de quaterniones (4 decimales para no perder info como 0.9 vs 1.0)
         writer.writerow({
             'SimTime': round(sim_time_s, 1),
             'Lat': round(current_lat, 7) if current_lat else None,

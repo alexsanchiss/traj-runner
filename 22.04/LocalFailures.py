@@ -9,8 +9,9 @@ import subprocess
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Extraído directamente del código fuente de PX4 (simulator_mavlink.cpp)
-SUPPORTED_FAILURES = [
+# Definición base de fallos (UNIT, TYPE)
+# Se expandirán automáticamente por instancias abajo
+BASE_FAILURES = [
     ("SENSOR_GPS", "OFF"),
     ("SENSOR_ACCEL", "OFF"),
     ("SENSOR_ACCEL", "STUCK"),
@@ -25,7 +26,21 @@ SUPPORTED_FAILURES = [
     ("SENSOR_VIO", "OFF")
 ]
 
-FAILURES_TO_TEST = SUPPORTED_FAILURES
+# Generación automática de casos de prueba
+# instancias_a_probar = [0, 1] # Cubrir primaria y secundaria
+# Además añadimos el caso especial -1 (Redundancy attack) para sensores críticos
+FAILURES_TO_TEST = []
+
+for unit, f_type in BASE_FAILURES:
+    # 1. Añadir instancia primaria (0)
+    FAILURES_TO_TEST.append((unit, f_type, 0))
+    
+    # 2. Para sensores críticos (IMU/MAG/BARO/GPS), probar también instancia secundaria (1)
+    # y ataque de redundancia completa (-1)
+    if "ACCEL" in unit or "GYRO" in unit or "MAG" in unit or "BARO" in unit:
+        FAILURES_TO_TEST.append((unit, f_type, 1))
+        # FAILURES_TO_TEST.append((unit, f_type, -1)) # Descomentar si se quiere stress test siempre
+
 
 def extract_home_position(mission_path):
     with open(mission_path, 'r') as f:
@@ -132,7 +147,12 @@ async def shutdown_px4(process):
         except asyncio.TimeoutError:
             continue
 
-async def monitor_px4_and_run(process, mission_name, unit, f_type):
+async def cleanup_sim_processes():
+    # Best-effort cleanup to avoid "PX4 server already running for instance 0".
+    subprocess.run("pkill -9 -f 'px4|gz sim|gz-server|gz client'", shell=True, stderr=subprocess.DEVNULL)
+    await asyncio.sleep(2)
+
+async def monitor_px4_and_run(process, mission_name, unit, f_type, instance):
     print("Esperando a que PX4 esté listo...")
     startup_markers = (
         "Startup script returned successfully",
@@ -155,8 +175,8 @@ async def monitor_px4_and_run(process, mission_name, unit, f_type):
         print(decoded_line)
         
         if any(marker in decoded_line for marker in startup_markers):
-            print(f"Iniciando MAVSDK para {mission_name} con fallo {unit} - {f_type}...")
-            mavsdk_command = [sys.executable, f"{current_dir}/CargarEjecutarFailure.py", mission_name, unit, f_type]
+            print(f"Iniciando MAVSDK para {mission_name} con fallo {unit} - {f_type} (Inst {instance})...")
+            mavsdk_command = [sys.executable, f"{current_dir}/CargarEjecutarFailure.py", mission_name, unit, f_type, str(instance)]
             mavsdk_process = await asyncio.create_subprocess_exec(*mavsdk_command)
             await mavsdk_process.wait() 
 
@@ -184,23 +204,22 @@ async def process_all_plans_with_failures():
         mission_path = os.path.join(planes_dir, archivo)
         home_lat, home_lon, home_alt = extract_home_position(mission_path)
         failures_to_run = FAILURES_TO_TEST if max_failures is None else FAILURES_TO_TEST[:max_failures]
-        
-        for unit, f_type in failures_to_run:
-            print(f"\n--- Procesando: {mission_name} | Fallo: {unit} ({f_type}) ---")
+
+        for i, (unit, f_type, instance) in enumerate(failures_to_run):
+            print(f"\n--- Procesando: {mission_name} | Fallo: {unit} ({f_type}) Inst: {instance} ---")
             try:
-                subprocess.run("pkill -f 'px4|gz sim|gz-server|gz client'", shell=True, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(1)
+                await cleanup_sim_processes()
 
                 px4_process = await run_px4(home_lat, home_lon, home_alt)
-                await monitor_px4_and_run(px4_process, mission_name, unit, f_type)
-                
-                subprocess.run("pkill -f 'px4|gz sim|gz-server|gz client'", shell=True, stderr=subprocess.DEVNULL)
-                await asyncio.sleep(1)
+                # Timeout de seguridad para monitor_px4_and_run
+                await asyncio.wait_for(monitor_px4_and_run(px4_process, mission_name, unit, f_type, instance), 260)
 
-                print(f"--- Finalizado: {mission_name} | Fallo: {unit} ({f_type}) ---")
+                await cleanup_sim_processes()
+
+                print(f"--- Finalizado: {mission_name} | Fallo: {unit} ({f_type}) Inst: {instance} ---")
             except Exception as e:
-                print(f"Error procesando {mission_name} con fallo {unit}-{f_type}: {e}")
-                subprocess.run("pkill -f 'px4|gz sim|gz-server|gz client'", shell=True, stderr=subprocess.DEVNULL)
+                print(f"Error procesando {mission_name} con fallo {unit}-{f_type} (inst {instance}): {e}")
+                await cleanup_sim_processes()
 
 if __name__ == "__main__":
     asyncio.run(process_all_plans_with_failures())

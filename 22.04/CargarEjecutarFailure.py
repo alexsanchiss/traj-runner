@@ -22,7 +22,7 @@ inic_alt = None
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
-async def run(mission_name, unit_str, f_type_str):
+async def run(mission_name, unit_str, f_type_str, instance_str="0"):
     try:
         global last_lat, last_lon, last_alt, inic_alt
         drone = System()
@@ -34,8 +34,15 @@ async def run(mission_name, unit_str, f_type_str):
                 print("-- Conectado al dron!")
                 break
 
+
+        # Modificacion: Usar MAVSDK Failure API si es posible, fallback a Shell
         # Habilitar inyección de fallos en PX4
-        await drone.param.set_param_int("SYS_FAILURE_EN", 1)
+        print("Habilitando SYS_FAILURE_EN...")
+        try:
+            await drone.param.set_param_int("SYS_FAILURE_EN", 1)
+        except Exception as e:
+            print(f"ADVERTENCIA CRÍTICA: Fallo al habilitar SYS_FAILURE_EN: {e}")
+            # No abortamos porque quizas ya esté habilitado o sea un simulador que no lo requiere explícitamente, pero avisamos.
 
         mission_path = f"{current_dir}/Planes/{mission_name}.plan"
         with open(mission_path, 'r') as f:
@@ -74,15 +81,17 @@ async def run(mission_name, unit_str, f_type_str):
         trayectorias_dir = f"{current_dir}/Trayectorias"
         os.makedirs(trayectorias_dir, exist_ok=True)
         
-        # Nombrar el CSV incluyendo los datos del fallo inyectado
-        csv_filename = f"{trayectorias_dir}/{mission_name}_{unit_str}_{f_type_str}_log.csv"
+        # Nombrar el CSV incluyendo los datos del fallo inyectado e instancia
+        csv_filename = f"{trayectorias_dir}/{mission_name}_{unit_str}_{f_type_str}_i{instance_str}_log.csv"
         
-        with open(csv_filename, mode='w') as csv_file:
-            fieldnames = ['SimTime', 'Lat', 'Lon', 'Alt', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz']
+        with open(csv_filename, mode='w', newline='') as csv_file:
+            # Nuevo header con traza de inyeccion
+            fieldnames = ['SimTime', 'Lat', 'Lon', 'Alt', 'qw', 'qx', 'qy', 'qz', 'Vx', 'Vy', 'Vz', 
+                          'FailureRequested', 'FailureApplied']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
             writer.writeheader()
 
-            inject_task = asyncio.create_task(inject_failure_on_cruise(drone, unit_str, f_type_str))
+            inject_task = asyncio.create_task(inject_failure_on_cruise(drone, unit_str, f_type_str, instance_str))
             gps_task = asyncio.create_task(log_gps(drone))
             odom_task = asyncio.create_task(log_odometry(drone, writer))
 
@@ -131,45 +140,100 @@ async def attempt_takeoff(drone):
 
     raise RuntimeError("No se pudo armar y despegar el dron después de varios intentos.")
 
-async def inject_failure_on_cruise(drone, unit_str, f_type_str):
-    """Espera a que el dron esté en el aire, da un margen para el crucero e inyecta el fallo."""
+
+async def inject_failure_on_cruise(drone, unit_str, f_type_str, instance_str="0"):
+    global failure_active, failure_requested_flag
+    
+    print("-- Esperando a que el dron esté en el aire para inyectar fallo...")
     async for in_air in drone.telemetry.in_air():
         if in_air:
+            print("-- Dron en aire. Esperando estabilización (8s)...")
             break
             
-    # Tiempo de espera para que el dron alcance la altitud de crucero hacia el primer WP
     await asyncio.sleep(8)
     
-    print(f"-- Inyectando fallo (vía MAVLink Shell / NSH): {unit_str} - {f_type_str}")
-    try:
-        # Formateo del comando de consola: "failure <unit> <type>[-i <instance>]"
-        # unit_str viene como "SENSOR_GPS", lo mapeamos a "gps"
-        unit_shell = unit_str.replace("SENSOR_", "").replace("SYSTEM_", "").lower()
-        type_shell = f_type_str.lower()
+    print(f"-- INICIANDO INYECCION: {unit_str} - {f_type_str} (Inst: {instance_str})")
+    failure_requested_flag = True
+    
+    # Determinar qué instancias atacar
+    instances_to_attack = []
+    if instance_str == "-1":
+        instances_to_attack = [0, 1, 2, 3] # Atacar redundancia agresivamente
+        print(f"   => MODO ATAQUE REDUNDANCIA: Se inyectará en instancias {instances_to_attack}")
+    else:
+        instances_to_attack = [int(instance_str)]
+
+    # Mapeo para API nativa
+    mapped_unit = getattr(FailureUnit, unit_str, None)
+    mapped_type = getattr(FailureType, f_type_str, None)
+
+    # Mapeo para Shell
+    unit_shell = unit_str.replace("SENSOR_", "").replace("SYSTEM_", "").lower()
+    type_shell = f_type_str.lower()
+    
+    # Mapeos especiales de nombre para consola PX4
+    if unit_shell == "accel": unit_shell = "accel"
+    elif unit_shell == "gyro": unit_shell = "gyro"
+    elif unit_shell == "mag": unit_shell = "mag"
+    elif unit_shell == "baro": unit_shell = "baro"
+    elif unit_shell == "airspeed": unit_shell = "airspeed"
+    elif unit_shell == "vio": unit_shell = "vio"
+
+    any_success = False
+
+    for inst in instances_to_attack:
+        print(f"   => Intentando inyección en Instancia {inst}...")
         
-        # El comando failure en px4 recibe "failure gps off" o "failure mag stuck"
-        shell_cmd = f"failure {unit_shell} {type_shell}"
+        # 1. INTENTO API NATIVA
+        native_ok = False
+        if mapped_unit and mapped_type:
+            try:
+                # Timeout corto para no bloquear si no hay respuesta
+                # La API de Python await failure.inject() a veces no retorna ACK en SITL y lance Timeout
+                await asyncio.wait_for(drone.failure.inject(mapped_unit, mapped_type, inst), timeout=2.0)
+                print(f"      [Native] EXITO: Inyección confirmada por API en instancia {inst}")
+                native_ok = True
+                any_success = True
+            except asyncio.TimeoutError:
+                print(f"      [Native] TIMEOUT: La API no respondió a tiempo. (Normal en algunos simuladores)")
+            except Exception as e:
+                print(f"      [Native] ERROR: {e}")
         
-        # Mapeo de casos especiales si los nombres de shell no son directos
-        if unit_shell == "accel": unit_shell = "accel"
-        elif unit_shell == "gyro": unit_shell = "gyro"
-        elif unit_shell == "mag": unit_shell = "mag"
-        elif unit_shell == "baro": unit_shell = "baro"
-        elif unit_shell == "airspeed": unit_shell = "airspeed"
-        elif unit_shell == "vio": unit_shell = "vio"
+        # 2. INTENTO SHELL (Fallback OBLIGATORIO si nativo falla o timeouts)
+        if not native_ok:
+            print(f"      [Fallback] Intentando inyección vía Shell...")
+            try:
+                # failure unit type -i instance
+                shell_cmd = f"failure {unit_shell} {type_shell} -i {inst}"
+                print(f"      [Shell] Enviando comando: '{shell_cmd}'")
+                
+                await drone.shell.send(shell_cmd + '\n')
+                # Pequeña pausa para asegurar procesamiento del buffer
+                await asyncio.sleep(0.5)
+                any_success = True
+                print(f"      [Shell] Comando enviado correctamente.")
+            except Exception as e:
+                print(f"      [Shell] ERROR CRÍTICO: {e}")
         
-        print(f"   => Ejecutando comando NSH: {shell_cmd}")
-        
-        # Se envía por el puerto de terminal NSH. Shell.send procesa el string puro
-        await drone.shell.send(shell_cmd + '\n')
-        
-        # Le damos un pequeño margen para procesar el comando
-        await asyncio.sleep(1)
-        print("-- Fallo inyectado correctamente vía Shell")
-    except Exception as e:
-        print(f"Error crítico enviando comando por Shell: {e}")
+        # Pausa entre inyecciones múltiples para asegurar que el sistema las digiere
+        if len(instances_to_attack) > 1:
+            await asyncio.sleep(1)
+
+    if any_success:
+        failure_active = True
+        print("-- INYECCION COMPLETADA (Al menos un comando enviado)")
+    else:
+        print("-- ERROR: No se pudo inyectar ningún fallo")
+
+
+global failure_active, failure_requested_flag
+failure_active = False
+failure_requested_flag = False
 
 async def log_odometry(drone, writer):
+    global current_lat, current_lon, current_alt, last_lat, last_lon, last_alt, inic_alt
+    global failure_active, failure_requested_flag
+    
     first_near_goal_time = None
     last_logged_second = None
     print("-- Grabando datos de los sensores")
@@ -185,11 +249,12 @@ async def log_odometry(drone, writer):
             continue
         last_logged_second = current_second
 
+        # Logging robusto de quaterniones (4 decimales para no perder info como 0.9 vs 1.0)
         writer.writerow({
             'SimTime': round(sim_time_s, 1),
             'Lat': round(current_lat, 7) if current_lat else None,
             'Lon': round(current_lon, 7) if current_lon else None,
-            'Alt': round(current_alt - inic_alt, 2) if current_alt else None,
+            'Alt': round(current_alt - inic_alt, 2) if current_alt and inic_alt is not None else None,
             'qw': round(odom.q.w, 4),
             'qx': round(odom.q.x, 4),
             'qy': round(odom.q.y, 4),
@@ -197,6 +262,8 @@ async def log_odometry(drone, writer):
             'Vx': round(odom.velocity_body.x_m_s, 2),
             'Vy': round(odom.velocity_body.y_m_s, 2),
             'Vz': round(odom.velocity_body.z_m_s, 2),
+            'FailureRequested': 1 if failure_requested_flag is True else 0, # Solicitado por el script
+            'FailureApplied': 1 if failure_active is True else 0            # Confirmado (si pudieramos, ahora = solicitado)
         })
 
         if current_lat is not None and current_lon is not None and current_alt is not None and inic_alt is not None:
@@ -244,14 +311,15 @@ async def log_gps(drone):
 
 async def main():
     if len(sys.argv) < 4:
-        print("Uso: python3 CargarEjecutarFailure.py <mission_name> <failure_unit> <failure_type>")
+        print("Uso: python3 CargarEjecutarFailure.py <mission_name> <failure_unit> <failure_type> [instance]")
         sys.exit(1)
         
     mission_name = sys.argv[1]
     unit_str = sys.argv[2]
     f_type_str = sys.argv[3]
+    instance_str = sys.argv[4] if len(sys.argv) > 4 else "0"
     
-    await run(mission_name, unit_str, f_type_str)
+    await run(mission_name, unit_str, f_type_str, instance_str)
 
 if __name__ == "__main__":
     try:
