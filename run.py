@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 UAS_PLANNER_DB = os.getenv("UAS_PLANNER_DB", "localhost")
 DB_USER = os.getenv("DB_USER", "asanmar4")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "12345678")
 DB_NAME = os.getenv("DB_NAME", "upps")
 
 # Obtener el nombre de la distro para asignarla como nombre de la máquina
